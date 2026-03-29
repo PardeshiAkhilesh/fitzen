@@ -1,0 +1,29 @@
+name: macromind
+description: AI-powered calorie and fitness tracker
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  dio: ^5.4.0
+  provider: ^6.1.1
+  flutter_secure_storage: ^9.0.0
+  shared_preferences: ^2.2.2
+  google_fonts: ^6.1.0
+  fl_chart: ^0.67.0
+  percent_indicator: ^4.2.3
+  record: ^5.1.0
+  permission_handler: ^11.3.0
+  lottie: ^3.0.0
+  flutter_svg: ^2.0.9
+  shimmer: ^3.0.0
+  smooth_page_indicator: ^1.1.0
+  cached_network_image: ^3.3.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
