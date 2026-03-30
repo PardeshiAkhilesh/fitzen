@@ -1,0 +1,9 @@
+.env
+pycache/
+__pycache__/
+__pycache__
+calorie_tracker.db
+*pyc
+*.pyo
+flutter_app_lightTheme/
+flutter_app_lightTheme
