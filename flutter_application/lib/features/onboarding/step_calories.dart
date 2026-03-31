@@ -4,7 +4,8 @@ import '../../core/theme/app_text_styles.dart';
 
 class StepCalories extends StatefulWidget {
   final VoidCallback onNext;
-  const StepCalories({super.key, required this.onNext});
+  final ValueChanged<int> onCaloriesChanged;
+  const StepCalories({super.key, required this.onNext, required this.onCaloriesChanged});
 
   @override
   State<StepCalories> createState() => _StepCaloriesState();
@@ -65,7 +66,10 @@ class _StepCaloriesState extends State<StepCalories> {
               min: 1000,
               max: 4000,
               divisions: 300,
-              onChanged: (val) => setState(() => _calories = val),
+              onChanged: (val) {
+                setState(() => _calories = val);
+                widget.onCaloriesChanged(val.toInt());
+              },
             ),
           ),
         ),
@@ -76,7 +80,7 @@ class _StepCaloriesState extends State<StepCalories> {
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: AppColors.warning.withOpacity(0.1),
+                color: const Color(0x1AFFC107),
                 border: Border.all(color: AppColors.warning),
                 borderRadius: BorderRadius.circular(12),
               ),

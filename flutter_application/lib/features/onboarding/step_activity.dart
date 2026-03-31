@@ -6,7 +6,8 @@ import '../../core/widgets/hero_image_card.dart';
 
 class StepActivity extends StatefulWidget {
   final VoidCallback onNext;
-  const StepActivity({super.key, required this.onNext});
+  final ValueChanged<String> onActivityChanged;
+  const StepActivity({super.key, required this.onNext, required this.onActivityChanged});
 
   @override
   State<StepActivity> createState() => _StepActivityState();
@@ -58,8 +59,12 @@ class _StepActivityState extends State<StepActivity> {
 
   Widget _buildCard(int index, String emoji, String title, String subtitle) {
     final isSelected = _selectedActivity == index;
+    final activityLevels = ['sedentary', 'light', 'moderate', 'active', 'very_active'];
     return GestureDetector(
-      onTap: () => setState(() => _selectedActivity = index),
+      onTap: () {
+        setState(() => _selectedActivity = index);
+        widget.onActivityChanged(activityLevels[index]);
+      },
       child: Container(
         height: 90,
         padding: const EdgeInsets.only(right: 16),

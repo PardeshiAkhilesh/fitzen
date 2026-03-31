@@ -7,7 +7,8 @@ import '../../core/widgets/hero_image_card.dart';
 
 class StepGoalType extends StatefulWidget {
   final VoidCallback onNext;
-  const StepGoalType({super.key, required this.onNext});
+  final ValueChanged<String> onGoalTypeChanged;
+  const StepGoalType({super.key, required this.onNext, required this.onGoalTypeChanged});
 
   @override
   State<StepGoalType> createState() => _StepGoalTypeState();
@@ -55,8 +56,12 @@ class _StepGoalTypeState extends State<StepGoalType> {
 
   Widget _buildCard(int index, String emoji, String title, String subtitle, String imgUrl) {
     final isSelected = _selectedGoal == index;
+    final goalTypes = ['lose', 'gain', 'maintain'];
     return GestureDetector(
-      onTap: () => setState(() => _selectedGoal = index),
+      onTap: () {
+        setState(() => _selectedGoal = index);
+        widget.onGoalTypeChanged(goalTypes[index]);
+      },
       child: Container(
         height: 130,
         padding: const EdgeInsets.all(16),

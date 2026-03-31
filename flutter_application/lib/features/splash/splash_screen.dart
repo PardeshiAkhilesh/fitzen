@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
+import '../../core/services/api_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -60,9 +61,12 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
     _controller.forward();
 
-    // After 2.5s, go to WelcomeScreen
-    Future.delayed(const Duration(milliseconds: 2500), () {
-      if (mounted) {
+    Future.delayed(const Duration(milliseconds: 2500), () async {
+      final isLoggedIn = await ApiService.isLoggedIn();
+      if (!mounted) return;
+      if (isLoggedIn) {
+        Navigator.of(context).pushReplacementNamed('/dashboard');
+      } else {
         Navigator.of(context).pushReplacementNamed('/welcome');
       }
     });

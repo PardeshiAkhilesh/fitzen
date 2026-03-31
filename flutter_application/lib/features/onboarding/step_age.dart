@@ -4,7 +4,8 @@ import '../../core/theme/app_text_styles.dart';
 
 class StepAge extends StatefulWidget {
   final VoidCallback onNext;
-  const StepAge({super.key, required this.onNext});
+  final ValueChanged<int> onAgeChanged;
+  const StepAge({super.key, required this.onNext, required this.onAgeChanged});
 
   @override
   State<StepAge> createState() => _StepAgeState();
@@ -39,7 +40,9 @@ class _StepAgeState extends State<StepAge> {
                 physics: const FixedExtentScrollPhysics(),
                 overAndUnderCenterOpacity: 0.25,
                 onSelectedItemChanged: (index) {
-                  setState(() => _selectedAge = index + 13);
+                  final age = index + 13;
+                  setState(() => _selectedAge = age);
+                  widget.onAgeChanged(age);
                 },
                 childDelegate: ListWheelChildBuilderDelegate(
                   builder: (context, index) {

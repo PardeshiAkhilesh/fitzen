@@ -4,7 +4,8 @@ import '../../core/theme/app_text_styles.dart';
 
 class StepHeight extends StatefulWidget {
   final VoidCallback onNext;
-  const StepHeight({super.key, required this.onNext});
+  final ValueChanged<double> onHeightChanged;
+  const StepHeight({super.key, required this.onNext, required this.onHeightChanged});
 
   @override
   State<StepHeight> createState() => _StepHeightState();
@@ -76,7 +77,10 @@ class _StepHeightState extends State<StepHeight> {
                     value: _height,
                     min: 100,
                     max: 250,
-                    onChanged: (val) => setState(() => _height = val),
+                    onChanged: (val) {
+                      setState(() => _height = val);
+                      widget.onHeightChanged(val);
+                    },
                   ),
                 ),
               ),

@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:dio/dio.dart';
 import '../../core/constants/image_constants.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/elite_input_field.dart';
 import '../../core/widgets/red_button.dart';
+import '../../core/services/api_service.dart';
+import '../../core/constants/api_constants.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -16,10 +19,46 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  bool _isLoading = false;
+  String? _errorMessage;
 
-  void _handleLogin() {
-    // Mock login API call
-    Navigator.pushNamedAndRemoveUntil(context, '/dashboard', (route) => false);
+  Future<void> _handleLogin() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
+    debugPrint('DEBUG LOGIN: Email=$email, Password length=${password.length}');
+
+    if (email.isEmpty || password.isEmpty) {
+      setState(() => _errorMessage = 'Please fill in all fields');
+      return;
+    }
+
+    setState(() { _isLoading = true; _errorMessage = null; });
+
+    try {
+      debugPrint('DEBUG LOGIN: Calling API ${ApiConstants.baseUrl}${ApiConstants.login}');
+      final data = await ApiService.post(ApiConstants.login, {
+        'email': email,
+        'password': password,
+      });
+
+      debugPrint('DEBUG LOGIN: Response received: $data');
+      await ApiService.saveToken(data['access_token']);
+      debugPrint('DEBUG LOGIN: Token saved, navigating to dashboard');
+
+      if (mounted) {
+        Navigator.pushNamedAndRemoveUntil(context, '/dashboard', (route) => false);
+      }
+    } on DioException catch (e) {
+      debugPrint('DEBUG LOGIN: DioException - ${e.response?.statusCode} - ${e.response?.data}');
+      final detail = e.response?.data?['detail'] ?? 'Login failed';
+      setState(() => _errorMessage = detail.toString());
+    } catch (e) {
+      debugPrint('DEBUG LOGIN: General error - $e');
+      setState(() => _errorMessage = 'Connection error. Is the server running?');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -101,9 +140,22 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 32),
                   
+                  if (_errorMessage != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFE8E8),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(_errorMessage!, style: const TextStyle(color: Color(0xFFE8191B), fontSize: 13)),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  
                   RedButton(
                     text: 'Login',
                     onPressed: _handleLogin,
+                    isLoading: _isLoading,
                   ),
                   const SizedBox(height: 16),
                   

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shimmer/shimmer.dart';
-import '../theme/app_colors.dart';
 
 class HeroImageCard extends StatelessWidget {
   final String imageUrl;

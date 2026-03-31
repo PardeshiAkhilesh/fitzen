@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:dio/dio.dart';
 import '../../core/constants/image_constants.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/elite_input_field.dart';
 import '../../core/widgets/red_button.dart';
+import '../../core/services/api_service.dart';
+import '../../core/constants/api_constants.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -18,10 +21,53 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  bool _isLoading = false;
+  String? _errorMessage;
 
-  void _handleRegister() {
-    // Mock registration API call
-    Navigator.pushNamed(context, '/onboarding');
+  Future<void> _handleRegister() async {
+    final name = _nameController.text.trim();
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    final confirmPassword = _confirmPasswordController.text;
+
+    if (name.isEmpty || email.isEmpty || password.isEmpty || confirmPassword.isEmpty) {
+      setState(() => _errorMessage = 'Please fill in all fields');
+      return;
+    }
+
+    if (password != confirmPassword) {
+      setState(() => _errorMessage = 'Passwords do not match');
+      return;
+    }
+
+    if (password.length < 8) {
+      setState(() => _errorMessage = 'Password must be at least 8 characters');
+      return;
+    }
+
+    setState(() { _isLoading = true; _errorMessage = null; });
+
+    try {
+      final data = await ApiService.post(ApiConstants.register, {
+        'full_name': name,
+        'email': email,
+        'password': password,
+        'confirm_password': confirmPassword,
+      });
+
+      await ApiService.saveToken(data['access_token']);
+
+      if (mounted) {
+        Navigator.pushNamed(context, '/onboarding');
+      }
+    } on DioException catch (e) {
+      final detail = e.response?.data?['detail'] ?? 'Registration failed';
+      setState(() => _errorMessage = detail.toString());
+    } catch (e) {
+      setState(() => _errorMessage = 'Connection error. Is the server running?');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -113,9 +159,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ),
                   const SizedBox(height: 32),
                   
+                  if (_errorMessage != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFE8E8),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(_errorMessage!, style: const TextStyle(color: Color(0xFFE8191B), fontSize: 13)),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  
                   RedButton(
                     text: 'Create Account',
                     onPressed: _handleRegister,
+                    isLoading: _isLoading,
                   ),
                   const SizedBox(height: 16),
                   

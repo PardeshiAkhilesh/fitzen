@@ -4,7 +4,8 @@ import '../../core/theme/app_text_styles.dart';
 
 class StepWeight extends StatefulWidget {
   final VoidCallback onNext;
-  const StepWeight({super.key, required this.onNext});
+  final ValueChanged<double> onWeightChanged;
+  const StepWeight({super.key, required this.onNext, required this.onWeightChanged});
 
   @override
   State<StepWeight> createState() => _StepWeightState();
@@ -65,9 +66,11 @@ class _StepWeightState extends State<StepWeight> {
                 children: [
                   _circleControl(Icons.remove, () {
                     setState(() => _weight -= 0.5);
+                    widget.onWeightChanged(_weight);
                   }),
                   _circleControl(Icons.add, () {
                     setState(() => _weight += 0.5);
+                    widget.onWeightChanged(_weight);
                   }),
                 ],
               ),

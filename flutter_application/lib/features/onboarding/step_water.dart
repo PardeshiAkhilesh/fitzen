@@ -6,7 +6,8 @@ import '../../core/widgets/hero_image_card.dart';
 
 class StepWater extends StatefulWidget {
   final VoidCallback onNext;
-  const StepWater({super.key, required this.onNext});
+  final ValueChanged<double> onWaterChanged;
+  const StepWater({super.key, required this.onNext, required this.onWaterChanged});
 
   @override
   State<StepWater> createState() => _StepWaterState();
@@ -106,7 +107,10 @@ class _StepWaterState extends State<StepWater> {
                       min: 1,
                       max: 20,
                       divisions: 19,
-                      onChanged: (val) => setState(() => _glasses = val.toInt()),
+                      onChanged: (val) {
+                        setState(() => _glasses = val.toInt());
+                        widget.onWaterChanged(_glasses * 0.25);
+                      },
                     ),
                   ),
                 ),

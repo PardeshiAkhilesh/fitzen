@@ -4,7 +4,8 @@ import '../../core/theme/app_text_styles.dart';
 
 class StepWeeklyRate extends StatefulWidget {
   final VoidCallback onNext;
-  const StepWeeklyRate({super.key, required this.onNext});
+  final ValueChanged<double> onRateChanged;
+  const StepWeeklyRate({super.key, required this.onNext, required this.onRateChanged});
 
   @override
   State<StepWeeklyRate> createState() => _StepWeeklyRateState();
@@ -81,8 +82,12 @@ class _StepWeeklyRateState extends State<StepWeeklyRate> {
 
   Widget _buildChip(int index, String text, {bool isRecommended = false}) {
     final isSelected = _selectedRate == index;
+    final rates = [0.25, 0.5, 0.75, 1.0];
     return GestureDetector(
-      onTap: () => setState(() => _selectedRate = index),
+      onTap: () {
+        setState(() => _selectedRate = index);
+        widget.onRateChanged(rates[index]);
+      },
       child: Container(
         decoration: BoxDecoration(
           gradient: isSelected ? AppColors.redGradient : null,

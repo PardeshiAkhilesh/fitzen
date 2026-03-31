@@ -4,7 +4,8 @@ import '../../core/theme/app_text_styles.dart';
 
 class StepMacros extends StatefulWidget {
   final VoidCallback onNext;
-  const StepMacros({super.key, required this.onNext});
+  final Function(int, int, int) onMacrosChanged;
+  const StepMacros({super.key, required this.onNext, required this.onMacrosChanged});
 
   @override
   State<StepMacros> createState() => _StepMacrosState();
@@ -32,11 +33,20 @@ class _StepMacrosState extends State<StepMacros> {
           child: ListView(
             padding: const EdgeInsets.symmetric(horizontal: 24),
             children: [
-              _buildMacroCard("Protein", AppColors.protein, _protein, "30", (val) => setState(() => _protein = val)),
+              _buildMacroCard("Protein", AppColors.protein, _protein, "30", (val) {
+                setState(() => _protein = val);
+                widget.onMacrosChanged(_protein, _carbs, _fat);
+              }),
               const SizedBox(height: 16),
-              _buildMacroCard("Carbs", AppColors.carbs, _carbs, "45", (val) => setState(() => _carbs = val)),
+              _buildMacroCard("Carbs", AppColors.carbs, _carbs, "45", (val) {
+                setState(() => _carbs = val);
+                widget.onMacrosChanged(_protein, _carbs, _fat);
+              }),
               const SizedBox(height: 16),
-              _buildMacroCard("Fat", AppColors.fat, _fat, "25", (val) => setState(() => _fat = val)),
+              _buildMacroCard("Fat", AppColors.fat, _fat, "25", (val) {
+                setState(() => _fat = val);
+                widget.onMacrosChanged(_protein, _carbs, _fat);
+              }),
             ],
           ),
         ),

@@ -49,7 +49,7 @@ class AppTextStyles {
       fontSize: 12, fontWeight: FontWeight.w400, color: AppColors.white);
       
   static TextStyle captionWhite70 = GoogleFonts.poppins(
-      fontSize: 12, fontWeight: FontWeight.w400, color: AppColors.white.withOpacity(0.7));
+      fontSize: 12, fontWeight: FontWeight.w400, color: Color(0xB3FFFFFF));
 
   // Label Red — active elements, badges
   static TextStyle labelRed = GoogleFonts.poppins(

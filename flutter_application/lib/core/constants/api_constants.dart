@@ -1,5 +1,20 @@
+import 'package:flutter/foundation.dart';
+
 class ApiConstants {
-  static const String baseUrl = 'http://localhost:8000';
+  static const String _configuredBaseUrl =
+      String.fromEnvironment('API_BASE_URL', defaultValue: '');
+
+  static String get baseUrl {
+    if (_configuredBaseUrl.isNotEmpty) {
+      return _configuredBaseUrl;
+    }
+
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return 'http://10.0.2.2:8000';
+    }
+
+    return 'http://127.0.0.1:8000';
+  }
   
   // Auth
   static const String register = '/auth/register';
@@ -19,6 +34,7 @@ class ApiConstants {
   // Weight
   static const String weightLog = '/weight/log';
   static const String weightHistory = '/weight/history';
+  static const String weightSummary = '/weight/summary';
 
   // Water
   static const String waterGoal = '/water/goal';
@@ -29,5 +45,7 @@ class ApiConstants {
   static const String llmLog = '/llm/log';
   static const String foodOrWorkoutToday = '/food-or-workout/today';
   static const String foodOrWorkoutLogsToday = '/food-or-workout/logs/today';
+  static const String workoutPlan = '/workout-plan';
+  static const String workoutPlanCalculateBurn = '/workout-plan/calculate-burn';
   static const String speechToText = '/api/speech-to-text/';
 }

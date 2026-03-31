@@ -48,6 +48,9 @@ dependencies:
   # Charts
   fl_chart: ^0.67.0
 
+  # Date formatting
+  intl: ^0.18.0
+
   # Circular progress
   percent_indicator: ^4.2.3
 

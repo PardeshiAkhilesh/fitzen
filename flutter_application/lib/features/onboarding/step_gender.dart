@@ -6,7 +6,8 @@ import '../../core/widgets/hero_image_card.dart';
 
 class StepGender extends StatefulWidget {
   final VoidCallback onNext;
-  const StepGender({super.key, required this.onNext});
+  final ValueChanged<String> onGenderChanged;
+  const StepGender({super.key, required this.onNext, required this.onGenderChanged});
 
   @override
   State<StepGender> createState() => _StepGenderState();
@@ -63,7 +64,10 @@ class _StepGenderState extends State<StepGender> {
   Widget _buildGenderCard(String value, String title) {
     final isSelected = _selectedGender == value;
     return GestureDetector(
-      onTap: () => setState(() => _selectedGender = value),
+      onTap: () {
+        setState(() => _selectedGender = value);
+        widget.onGenderChanged(value);
+      },
       child: Container(
         height: 72,
         decoration: BoxDecoration(
