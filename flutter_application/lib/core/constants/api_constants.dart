@@ -13,7 +13,7 @@ class ApiConstants {
       return 'http://10.0.2.2:8000';
     }
 
-    return 'http://127.0.0.1:8000';
+    return 'https://fitzen-nqox.onrender.com';
   }
   
   // Auth
@@ -47,5 +47,7 @@ class ApiConstants {
   static const String foodOrWorkoutLogsToday = '/food-or-workout/logs/today';
   static const String workoutPlan = '/workout-plan';
   static const String workoutPlanCalculateBurn = '/workout-plan/calculate-burn';
+  static const String workoutPlanCompleteDay = '/workout-plan/complete-day';
+  static const String workoutPlanReset = '/workout-plan/reset';
   static const String speechToText = '/api/speech-to-text/';
 }

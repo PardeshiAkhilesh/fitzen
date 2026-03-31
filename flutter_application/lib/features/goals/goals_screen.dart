@@ -6,15 +6,24 @@ import '../../core/widgets/hero_image_card.dart';
 import '../../core/services/api_service.dart';
 import '../../core/constants/api_constants.dart';
 
-
 class WorkoutDay {
   final int id;
   final int dayNumber;
   final String dayLabel;
   String title;
   List<Map<String, String>> exercises;
+  bool isCompleted;
+  bool isUnlocked;
 
-  WorkoutDay({required this.id, required this.dayNumber, required this.dayLabel, required this.title, required this.exercises});
+  WorkoutDay({
+    required this.id,
+    required this.dayNumber,
+    required this.dayLabel,
+    required this.title,
+    required this.exercises,
+    this.isCompleted = false,
+    this.isUnlocked = false,
+  });
 }
 
 class GoalsScreen extends StatefulWidget {
@@ -26,25 +35,16 @@ class GoalsScreen extends StatefulWidget {
 
 class _GoalsScreenState extends State<GoalsScreen> {
   List<WorkoutDay> _plan = [];
-  final Set<int> _completed = <int>{};
   bool _loading = true;
   final Map<int, int> _burnResults = {};
-  final Map<int, GlobalKey> _dayKeys = {};
+
+  // Tracks which sets are checked per day per exercise
+  // Key: dayId, Value: List<List<bool>> — outer = exercise index, inner = set index
+  final Map<int, List<List<bool>>> _setChecks = {};
 
   @override
   void initState() {
     super.initState();
-    // Install a temporary ErrorWidget to show helpful errors in the UI
-    ErrorWidget.builder = (FlutterErrorDetails details) {
-      debugPrint('GoalsScreen build error: ${details.exception}');
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Text('An error occurred rendering My Goals:\n${details.exceptionAsString()}', textAlign: TextAlign.center, style: AppTextStyles.caption),
-        ),
-      );
-    };
-
     _loadPlan();
   }
 
@@ -52,7 +52,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
     if (mounted) setState(() => _loading = true);
     try {
       final res = await ApiService.get(ApiConstants.workoutPlan);
-      debugPrint('workout plan response: ${res.runtimeType} -> $res');
       final days = <WorkoutDay>[];
       final items = (res as List?) ?? [];
       for (var item in items) {
@@ -65,32 +64,28 @@ class _GoalsScreenState extends State<GoalsScreen> {
             'reps': e['reps']?.toString() ?? '',
           });
         }
-        days.add(WorkoutDay(id: item['id'] ?? 0, dayNumber: item['day_number'] ?? 0, dayLabel: item['day_label'] ?? 'Day', title: item['title'] ?? 'Workout', exercises: exs));
-      }
-
-      // If backend returned unexpected shape or empty, show a small fallback plan so UI is visible
-      if (days.isEmpty) {
-        debugPrint('Using fallback plan (API returned empty or invalid)');
-        days.addAll([
-          WorkoutDay(id: 1, dayNumber: 1, dayLabel: 'Mon', title: 'Full Body', exercises: [
-            {'name': 'Squats', 'sets': '3', 'reps': '12'},
-            {'name': 'Push Ups', 'sets': '3', 'reps': '10'},
-          ]),
-          WorkoutDay(id: 2, dayNumber: 2, dayLabel: 'Tue', title: 'Cardio', exercises: [
-            {'name': 'Running', 'sets': '1', 'reps': '30min'},
-          ]),
-        ]);
+        days.add(WorkoutDay(
+          id: item['id'] ?? 0,
+          dayNumber: item['day_number'] ?? 0,
+          dayLabel: item['day_label'] ?? 'Day',
+          title: item['title'] ?? 'Workout',
+          exercises: exs,
+          isCompleted: item['is_completed'] == true,
+          isUnlocked: item['is_unlocked'] == true,
+        ));
       }
 
       if (mounted) {
         setState(() {
           _plan = days;
-          _dayKeys.clear();
+          _setChecks.clear();
           for (var d in _plan) {
-            _dayKeys[d.id] = GlobalKey();
+            _setChecks[d.id] = d.exercises.map((e) {
+              final sets = int.tryParse(e['sets'] ?? '1') ?? 1;
+              return List<bool>.filled(sets, false);
+            }).toList();
           }
         });
-        debugPrint('Plan set: ${_plan.length} items');
       }
     } catch (e) {
       debugPrint('Failed loading plan: $e');
@@ -99,45 +94,70 @@ class _GoalsScreenState extends State<GoalsScreen> {
     }
   }
 
-  Future<void> _saveDay(WorkoutDay day) async {
-    final payload = {
-      'title': day.title,
-      'exercises': day.exercises.map((e) => {'name': e['name'], 'sets': e['sets'], 'reps': e['reps']}).toList()
-    };
+  Future<void> _completeDay(WorkoutDay day) async {
     try {
-      await ApiService.put('${ApiConstants.workoutPlan}/${day.id}', payload);
+      // 1. Mark completion in DB
+      await ApiService.post(ApiConstants.workoutPlanCompleteDay, {'plan_id': day.id});
+
+      // 2. Calculate calorie burn
+      final exercises = day.exercises.map((e) {
+        return {
+          'name': e['name'],
+          'sets': int.tryParse(e['sets'] ?? '') ?? 1,
+          'reps': e['reps'] ?? '',
+        };
+      }).toList();
+      final res = await ApiService.post(
+        ApiConstants.workoutPlanCalculateBurn,
+        {'day_title': day.title, 'exercises': exercises},
+      );
+      final cal = (res['total_calories'] as num?)?.toInt() ?? 0;
+
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved')));
-      await _loadPlan();
+      setState(() {
+        day.isCompleted = true;
+        _burnResults[day.id] = cal;
+        // Unlock the next day
+        final idx = _plan.indexWhere((d) => d.id == day.id);
+        if (idx >= 0 && idx + 1 < _plan.length) {
+          _plan[idx + 1].isUnlocked = true;
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Day complete! ~$cal kcal burned 🔥')),
+      );
     } catch (e) {
-      debugPrint('Save day error: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
-  Future<void> _completeDay(WorkoutDay day) async {
-    // Build completed exercises payload: sets as int if possible
-    final exercises = day.exercises.map((e) {
-      final sets = int.tryParse(e['sets'] ?? '') ?? 1;
-      return {'name': e['name'], 'sets': sets, 'reps': e['reps'] ?? ''};
-    }).toList();
-
-    final payload = {'day_title': day.title, 'exercises': exercises};
-    try {
-      final res = await ApiService.post(ApiConstants.workoutPlanCalculateBurn, payload);
-      debugPrint('Calculate burn: $res');
-      // store burn results per day id if provided
-      final cal = (res['total_calories'] as num?)?.toInt() ?? 0;
-      setState(() => _burnResults[day.id] = cal);
-      if (!mounted) return;
-      setState(() => _completed.add(day.id));
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Workout recorded')));
-    } catch (e) {
-      debugPrint('Complete day error: $e');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to record: $e')));
+  String _exerciseImageUrl(String name) {
+    final key = name.toLowerCase().trim();
+    
+    // Chest / Push
+    if (key.contains('bench') || key.contains('chest') || key.contains('push') || key.contains('fly') || key.contains('dip') || key.contains('incline')) {
+      return 'https://images.unsplash.com/photo-1571019614242-c5c5dee9f50b?auto=format&fit=crop&w=300&q=80';
     }
+    // Back / Pull
+    if (key.contains('deadlift') || key.contains('row') || key.contains('pull') || key.contains('lat') || key.contains('back')) {
+      return 'https://images.unsplash.com/photo-1603287681836-b174ce5074c2?auto=format&fit=crop&w=300&q=80';
+    }
+    // Legs
+    if (key.contains('squat') || key.contains('leg') || key.contains('calf') || key.contains('lung') || key.contains('thrust') || key.contains('romanian') || key.contains('bulgarian')) {
+      return 'https://images.unsplash.com/photo-1541534741688-6078c6bfb5c5?auto=format&fit=crop&w=300&q=80';
+    }
+    // Arms / Shoulders
+    if (key.contains('curl') || key.contains('tricep') || key.contains('bicep') || key.contains('extension') || key.contains('pushdown') || key.contains('shoulder') || key.contains('raise') || key.contains('overhead') || key.contains('press')) {
+      return 'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?auto=format&fit=crop&w=300&q=80';
+    }
+    // Abs / Core
+    if (key.contains('abs') || key.contains('plank') || key.contains('crunch') || key.contains('rollout') || key.contains('core')) {
+      return 'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?auto=format&fit=crop&w=300&q=80';
+    }
+
+    // Default general gym premium photo
+    return 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=300&q=80';
   }
 
   void _showEditDay(WorkoutDay day) {
@@ -177,23 +197,41 @@ class _GoalsScreenState extends State<GoalsScreen> {
                   }),
                   const SizedBox(height: 8),
                   Row(children: [
-                    ElevatedButton(onPressed: () { sb(() { exCtrls.add({'name': TextEditingController(), 'sets': TextEditingController(text: '3'), 'reps': TextEditingController(text: '10')}); }); }, child: const Text('Add Exercise')),
-                    const Spacer(),
-                    ElevatedButton(onPressed: () {
-                      // save
-                      final updated = <Map<String,String>>[];
-                      for (var c in exCtrls) {
-                        updated.add({
-                          'name': c['name']?.text ?? '',
-                          'sets': c['sets']?.text ?? '',
-                          'reps': c['reps']?.text ?? ''
-                        });
-                      }
-                      day.title = titleCtrl.text;
-                      day.exercises = updated;
-                      Navigator.of(ctx).pop();
-                      _saveDay(day);
-                    }, child: const Text('Save'))
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          sb(() { 
+                            exCtrls.add({
+                              'name': TextEditingController(), 
+                              'sets': TextEditingController(text: '3'), 
+                              'reps': TextEditingController(text: '10')
+                            }); 
+                          }); 
+                        }, 
+                        child: const Text('Add Exercise')
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          final updated = <Map<String,String>>[];
+                          for (var c in exCtrls) {
+                            updated.add({
+                              'name': c['name']?.text ?? '',
+                              'sets': c['sets']?.text ?? '',
+                              'reps': c['reps']?.text ?? ''
+                            });
+                          }
+                          day.title = titleCtrl.text;
+                          day.exercises = updated;
+                          Navigator.of(ctx).pop();
+                          _saveDay(day);
+                        }, 
+                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.red),
+                        child: const Text('Save')
+                      ),
+                    ),
                   ])
                 ]),
               );
@@ -204,20 +242,41 @@ class _GoalsScreenState extends State<GoalsScreen> {
     );
   }
 
+  Future<void> _saveDay(WorkoutDay day) async {
+    final payload = {
+      'title': day.title,
+      'exercises': day.exercises.map((e) => {'name': e['name'], 'sets': e['sets'], 'reps': e['reps']}).toList()
+    };
+    try {
+      await ApiService.put('${ApiConstants.workoutPlan}/${day.id}', payload);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved')));
+      await _loadPlan();
+    } catch (e) {
+      debugPrint('Save day error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save: $e')));
+    }
+  }
+
+  bool _allSetsChecked(WorkoutDay day) {
+    final checks = _setChecks[day.id];
+    if (checks == null) return false;
+    return checks.every((exSets) => exSets.every((v) => v));
+  }
+
+  int _checkedCount(WorkoutDay day) {
+    final checks = _setChecks[day.id];
+    if (checks == null) return 0;
+    int c = 0;
+    for (var ex in checks) {
+      if (ex.every((v) => v)) c++;
+    }
+    return c;
+  }
+
   @override
   Widget build(BuildContext context) {
-    try {
-      // keep building below
-    } catch (e, st) {
-      debugPrint('Build error in GoalsScreen: $e\n$st');
-      return Scaffold(
-        backgroundColor: AppColors.scaffoldBg,
-        appBar: AppBar(title: const Text('My Goals'), backgroundColor: Colors.white, centerTitle: true),
-        body: Center(child: Padding(padding: const EdgeInsets.all(16), child: Text('Build error: $e', style: AppTextStyles.caption))),
-      );
-    }
-    // week date calculations not needed for redesigned UI
-
     return Scaffold(
       backgroundColor: AppColors.scaffoldBg,
       appBar: AppBar(
@@ -229,7 +288,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
             onPressed: () async {
               final messenger = ScaffoldMessenger.maybeOf(context);
               try {
-                await ApiService.post('${ApiConstants.workoutPlan}/reset', {});
+                await ApiService.post(ApiConstants.workoutPlanReset, {});
                 await _loadPlan();
                 if (!mounted) return;
                 messenger?.showSnackBar(const SnackBar(content: Text('Plan reset')));
@@ -255,7 +314,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                         onPressed: () async {
                           final messenger = ScaffoldMessenger.maybeOf(context);
                           try {
-                            await ApiService.post('${ApiConstants.workoutPlan}/reset', {});
+                            await ApiService.post(ApiConstants.workoutPlanReset, {});
                             await _loadPlan();
                             if (!mounted) return;
                           } catch (e) {
@@ -269,125 +328,141 @@ class _GoalsScreenState extends State<GoalsScreen> {
                     ]),
                   ),
                 )
-              : ListView(
+              : ListView.builder(
                   padding: const EdgeInsets.all(16),
-                  children: [
-                    HeroImageCard(
-                      imageUrl: AppImages.trainerHero,
-                      height: 220,
-                      overlay: AppColors.imageOverlayDark,
-                      content: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.end, children: [Text('Your Coach', style: AppTextStyles.captionWhite70), Text('Elite Fit AI', style: AppTextStyles.labelWhite)]),
-                    ),
-                    const SizedBox(height: 20),
-                    // Weekly progress strip (fixed height horizontal ListView)
-                    SizedBox(
-                      height: 96,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: _plan.length,
-                        separatorBuilder: (context, index) => const SizedBox(width: 12),
-                          itemBuilder: (ctx, i) {
-                          final d = _plan[i];
-                          final completed = _completed.contains(d.id);
-                          return GestureDetector(
-                            onTap: () {
-                              final key = _dayKeys[d.id];
-                              if (key != null && key.currentContext != null) {
-                                Scrollable.ensureVisible(key.currentContext!, duration: const Duration(milliseconds: 300), alignment: 0.1);
-                              }
-                            },
-                            child: Container(
-                              width: 110,
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-                              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: AppColors.cardShadow),
-                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                Row(children: [
-                                  Container(width: 12, height: 12, decoration: BoxDecoration(color: completed ? Colors.green : AppColors.divider, shape: BoxShape.circle)),
-                                  const SizedBox(width: 8),
-                                  Expanded(child: Text(d.dayLabel, style: AppTextStyles.caption)),
-                                ]),
-                                const SizedBox(height: 8),
-                                Text(d.title, style: AppTextStyles.h3, maxLines: 2, overflow: TextOverflow.ellipsis),
-                              ]),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    // Plan list
-                    ..._plan.map((d) {
+                  itemCount: _plan.length + 1,
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
                       return Padding(
-                        key: _dayKeys[d.id],
-                        padding: const EdgeInsets.only(bottom: 14, top: 6),
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                          margin: const EdgeInsets.only(top: 4),
-                          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: AppColors.cardShadow),
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Row(children: [
-                              Text(d.dayLabel, style: AppTextStyles.caption),
-                              const SizedBox(width: 12),
-                              Expanded(child: Text(d.title, style: AppTextStyles.h3, overflow: TextOverflow.ellipsis)),
-                              Flexible(child: SizedBox(width: 44, child: IconButton(onPressed: () => _showEditDay(d), icon: const Icon(Icons.edit, size: 20)))),
-                            ]),
-                            const SizedBox(height: 8),
-                            Column(children: d.exercises.map((e) {
-                              return Column(children: [
-                                Row(children: [
-                                  Expanded(child: Text(e['name'] ?? '', style: AppTextStyles.body, overflow: TextOverflow.ellipsis)),
-                                  const SizedBox(width: 8),
-                                  Text('${e['sets'] ?? ''} x ${e['reps'] ?? ''}', style: AppTextStyles.caption),
-                                ]),
-                                const SizedBox(height: 8),
-                                const Divider(height: 1, color: AppColors.divider),
-                                const SizedBox(height: 8),
-                              ]);
-                            }).toList()),
-                            const SizedBox(height: 8),
-                            Row(children: [
-                              if (_completed.contains(d.id))
-                                Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), decoration: BoxDecoration(color: Colors.green, borderRadius: BorderRadius.circular(20)), child: Text('✓ Done', style: AppTextStyles.caption.copyWith(color: Colors.white)))
-                              else
-                                Flexible(child: ElevatedButton(onPressed: () => _completeDay(d), style: ElevatedButton.styleFrom(backgroundColor: AppColors.red), child: const Text('Complete Day'))),
-                              const SizedBox(width: 12),
-                            ]),
-                            if (_burnResults.containsKey(d.id)) ...[
-                              const SizedBox(height: 8),
-                              Text('~${_burnResults[d.id]} kcal burned', style: AppTextStyles.caption),
+                        padding: const EdgeInsets.only(bottom: 20),
+                        child: HeroImageCard(
+                          imageUrl: AppImages.trainerHero,
+                          height: 220,
+                          overlay: AppColors.imageOverlayDark,
+                          content: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start, 
+                            mainAxisAlignment: MainAxisAlignment.end, 
+                            children: [
+                              Text('Your Coach', style: AppTextStyles.captionWhite70), 
+                              Text('Elite Fit AI', style: AppTextStyles.labelWhite)
                             ]
-                          ]),
+                          ),
                         ),
                       );
-                    }),
-                  ],
+                    }
+                    final day = _plan[index - 1];
+                    
+                    if (!day.isUnlocked) {
+                      return _buildLockedDayCard(day);
+                    }
+                    if (day.isCompleted) {
+                      return _buildCompletedDayCard(day);
+                    }
+                    return _buildActiveDayCard(day);
+                  },
                 ),
     );
   }
 
-  // ignore: unused_element
-  List<Widget> _buildPlanWidgets() {
-    try {
-      return _plan.map((d) => Padding(padding: const EdgeInsets.only(bottom:12), child: Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: AppColors.cardShadow), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children:[Text(d.title, style: AppTextStyles.h3), ElevatedButton(onPressed: () => _showEditDay(d), style: ElevatedButton.styleFrom(backgroundColor: AppColors.red), child: const Text('Edit'))]),
-        const SizedBox(height:8),
-        ...d.exercises.map((e) => Padding(padding: const EdgeInsets.symmetric(vertical:6), child: Row(children:[Flexible(child: Text(e['name'] ?? '', style: AppTextStyles.body, overflow: TextOverflow.ellipsis)), const SizedBox(width:8), Text('${e['sets'] ?? ''} x ${e['reps'] ?? ''}', style: AppTextStyles.caption)]))),
-        const SizedBox(height:8),
-        Row(children:[ElevatedButton(onPressed: () => _completeDay(d), child: const Text('Complete Day')), const SizedBox(width:8), Text(_completed.contains(d.id) ? 'Completed' : '')])
-      ])))) .toList();
-    } catch (e, st) {
-      debugPrint('Error building plan widgets: $e\n$st');
-      return [Padding(padding: const EdgeInsets.all(16), child: Text('Failed to render plan: $e', style: AppTextStyles.caption))];
-    }
+  Widget _buildLockedDayCard(WorkoutDay day) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Row(children: [
+        const Icon(Icons.lock_outline, color: Colors.grey),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(day.dayLabel, style: AppTextStyles.caption),
+            Text(day.title, style: AppTextStyles.h3.copyWith(color: Colors.grey), overflow: TextOverflow.ellipsis),
+          ]),
+        ),
+      ]),
+    );
   }
 
-  // month name helper removed — unused in redesigned UI
-
-  // ignore: unused_element
-  Widget _buildGoalSummaryCard() {
+  Widget _buildCompletedDayCard(WorkoutDay day) {
     return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.green.shade300, width: 2),
+        boxShadow: AppColors.cardShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(day.dayLabel, style: AppTextStyles.caption),
+                    Text(day.title, style: AppTextStyles.h3, overflow: TextOverflow.ellipsis),
+                  ]
+                )
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.green,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.check, color: Colors.white, size: 16),
+                    const SizedBox(width: 4),
+                    Text('Completed', style: AppTextStyles.caption.copyWith(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              )
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (_burnResults.containsKey(day.id)) ...[
+            Text('~${_burnResults[day.id]} kcal burned 🔥', style: AppTextStyles.caption.copyWith(color: AppColors.red, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+          ],
+          const Divider(height: 1, color: AppColors.divider),
+          const SizedBox(height: 12),
+          ...day.exercises.map((e) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8.0),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_circle, color: Colors.grey, size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(e['name'] ?? '', style: AppTextStyles.body.copyWith(color: Colors.grey), overflow: TextOverflow.ellipsis),
+                  ),
+                  Text('${e['sets'] ?? ''} x ${e['reps'] ?? ''}', style: AppTextStyles.caption),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActiveDayCard(WorkoutDay day) {
+    final isReady = _allSetsChecked(day);
+    final completedExs = _checkedCount(day);
+    final totalExs = day.exercises.length;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -395,85 +470,115 @@ class _GoalsScreenState extends State<GoalsScreen> {
         boxShadow: AppColors.cardShadow,
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text("🔻  LOSE WEIGHT", style: AppTextStyles.labelRed),
-              Text("Target: June 15, 2025", style: AppTextStyles.caption.copyWith(color: AppColors.black)),
-            ],
-          ),
-          const SizedBox(height: 24),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text("78.5 kg", style: AppTextStyles.body.copyWith(fontWeight: FontWeight.bold, color: AppColors.black)),
-              Flexible(
-                fit: FlexFit.tight,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
-                    children: const [
-                      Expanded(child: Divider(color: AppColors.divider, thickness: 1)),
-                      Icon(Icons.arrow_forward_ios, size: 12, color: AppColors.divider),
-                    ],
-                  ),
-                ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(day.dayLabel, style: AppTextStyles.caption),
+                    Text(day.title, style: AppTextStyles.h3, overflow: TextOverflow.ellipsis),
+                  ]
+                )
               ),
-              Text("72.0 kg", style: AppTextStyles.body.copyWith(fontWeight: FontWeight.bold, color: AppColors.black)),
+              TextButton(
+                onPressed: () => _showEditDay(day),
+                child: const Text('Edit'),
+              )
             ],
           ),
-          const SizedBox(height: 24),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: const LinearProgressIndicator(
-              value: 0.65,
-              backgroundColor: Color(0xFFE0E0E0),
-              valueColor: AlwaysStoppedAnimation(AppColors.red),
-              minHeight: 8,
+          const SizedBox(height: 16),
+          ...List.generate(day.exercises.length, (exIdx) {
+            final e = day.exercises[exIdx];
+            final setCount = int.tryParse(e['sets'] ?? '1') ?? 1;
+            
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 16.0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      _exerciseImageUrl(e['name'] ?? ''),
+                      width: 52,
+                      height: 52,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        width: 52, height: 52,
+                        color: Colors.grey.shade200,
+                        child: const Icon(Icons.fitness_center, color: Colors.grey),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(child: Text(e['name'] ?? '', style: AppTextStyles.body.copyWith(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
+                            const SizedBox(width: 8),
+                            Text('x ${e['reps'] ?? ''}', style: AppTextStyles.caption),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        if (_setChecks.containsKey(day.id) && _setChecks[day.id]!.length > exIdx)
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: List.generate(setCount, (setIdx) {
+                              if (_setChecks[day.id]![exIdx].length <= setIdx) return const SizedBox.shrink();
+                              final checked = _setChecks[day.id]![exIdx][setIdx];
+                              return GestureDetector(
+                                onTap: () => setState(() {
+                                  _setChecks[day.id]![exIdx][setIdx] = !checked;
+                                }),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: checked ? AppColors.red : Colors.grey.shade100,
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(color: checked ? AppColors.red : Colors.grey.shade400),
+                                  ),
+                                  child: Text(
+                                    'Set ${setIdx + 1}',
+                                    style: AppTextStyles.caption.copyWith(
+                                      color: checked ? Colors.white : Colors.black,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              '$completedExs / $totalExs exercises fully done',
+              style: AppTextStyles.caption,
             ),
           ),
           const SizedBox(height: 8),
-          Text("65% to goal", style: AppTextStyles.caption),
-        ],
-      ),
-    );
-  }
-
-  // ignore: unused_element
-  Widget _buildWorkoutList(String img, String title, String subtitle) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: AppColors.cardShadow,
-      ),
-      child: Row(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Image.network(img, width: 48, height: 48, fit: BoxFit.cover),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: AppTextStyles.body.copyWith(fontWeight: FontWeight.bold, color: AppColors.black)),
-                Text(subtitle, style: AppTextStyles.caption),
-              ],
+          ElevatedButton(
+            onPressed: isReady ? () => _completeDay(day) : null,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isReady ? AppColors.red : Colors.grey.shade300,
+              disabledBackgroundColor: Colors.grey.shade300,
+              disabledForegroundColor: Colors.grey.shade600,
+              padding: const EdgeInsets.symmetric(vertical: 14),
             ),
-          ),
-          Container(
-            width: 40,
-            height: 40,
-            decoration: const BoxDecoration(
-              gradient: AppColors.redGradient,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.play_arrow, color: Colors.white),
+            child: const Text('Complete Day'),
           ),
         ],
       ),

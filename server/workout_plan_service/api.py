@@ -5,7 +5,8 @@ from pydantic import BaseModel
 
 from auth_service.dependencies import get_current_user
 from .models import WorkoutPlan, WorkoutPlanExercise
-from .schemas import WorkoutDayResponse, UpdateDayRequest
+from .completion_models import WorkoutDayCompletion
+from .schemas import WorkoutDayResponse, UpdateDayRequest, WorkoutDayWithStatusResponse, DayCompletionRequest
 
 router = APIRouter(prefix="/workout-plan", tags=["Workout Plan"])
 
@@ -94,7 +95,7 @@ def _seed_default_plan(db: Session, user_id: int):
     db.commit()
 
 
-@router.get("/", response_model=List[WorkoutDayResponse])
+@router.get("/", response_model=List[WorkoutDayWithStatusResponse])
 def get_workout_plan(
     request: Request,
     current_user=Depends(get_current_user),
@@ -114,10 +115,56 @@ def get_workout_plan(
             .order_by(WorkoutPlan.day_number)
             .all()
         )
-    return plans
+
+    completed_ids = set(
+        row.plan_id for row in
+        db.query(WorkoutDayCompletion).filter_by(user_id=current_user.id).all()
+    )
+
+    result = []
+    for i, plan in enumerate(plans):
+        is_completed = plan.id in completed_ids
+        # Day 1 is always unlocked; every other day requires the previous day to be completed
+        if i == 0:
+            is_unlocked = True
+        else:
+            is_unlocked = plans[i - 1].id in completed_ids
+        result.append(WorkoutDayWithStatusResponse(
+            **WorkoutDayResponse.model_validate(plan).model_dump(),
+            is_completed=is_completed,
+            is_unlocked=is_unlocked,
+        ))
+    return result
 
 
-@router.put("/{plan_id}", response_model=WorkoutDayResponse)
+@router.post("/complete-day")
+def complete_day(
+    payload: DayCompletionRequest,
+    request: Request,
+    current_user=Depends(get_current_user),
+):
+    from datetime import date
+    db: Session = request.state.db
+
+    plan = db.query(WorkoutPlan).filter_by(id=payload.plan_id, user_id=current_user.id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Workout day not found")
+
+    existing = db.query(WorkoutDayCompletion).filter_by(
+        user_id=current_user.id, plan_id=payload.plan_id
+    ).first()
+    if not existing:
+        db.add(WorkoutDayCompletion(
+            user_id=current_user.id,
+            plan_id=payload.plan_id,
+            completed_on=date.today(),
+        ))
+        db.commit()
+
+    return {"success": True, "plan_id": payload.plan_id}
+
+
+@router.put("/{plan_id}", response_model=WorkoutDayWithStatusResponse)
 def update_workout_day(
     plan_id: int,
     payload: UpdateDayRequest,
@@ -143,10 +190,22 @@ def update_workout_day(
         ))
     db.commit()
     db.refresh(plan)
-    return plan
+
+    all_plans = db.query(WorkoutPlan).filter_by(user_id=current_user.id).order_by(WorkoutPlan.day_number).all()
+    completed_ids = set(row.plan_id for row in db.query(WorkoutDayCompletion).filter_by(user_id=current_user.id).all())
+
+    is_completed = plan.id in completed_ids
+    idx = next((i for i, p in enumerate(all_plans) if p.id == plan.id), 0)
+    is_unlocked = True if idx == 0 else (all_plans[idx - 1].id in completed_ids)
+
+    return WorkoutDayWithStatusResponse(
+        **WorkoutDayResponse.model_validate(plan).model_dump(),
+        is_completed=is_completed,
+        is_unlocked=is_unlocked,
+    )
 
 
-@router.post("/reset", response_model=List[WorkoutDayResponse])
+@router.post("/reset", response_model=List[WorkoutDayWithStatusResponse])
 def reset_workout_plan(
     request: Request,
     current_user=Depends(get_current_user),
@@ -156,14 +215,23 @@ def reset_workout_plan(
     plans = db.query(WorkoutPlan).filter_by(user_id=current_user.id).all()
     for p in plans:
         db.delete(p)
+    db.query(WorkoutDayCompletion).filter_by(user_id=current_user.id).delete()
     db.commit()
     _seed_default_plan(db, current_user.id)
-    return (
+    plans = (
         db.query(WorkoutPlan)
         .filter_by(user_id=current_user.id)
         .order_by(WorkoutPlan.day_number)
         .all()
     )
+    result = []
+    for i, plan in enumerate(plans):
+        result.append(WorkoutDayWithStatusResponse(
+            **WorkoutDayResponse.model_validate(plan).model_dump(),
+            is_completed=False,
+            is_unlocked=(i == 0),
+        ))
+    return result
 
 
 class CompletedExercise(BaseModel):

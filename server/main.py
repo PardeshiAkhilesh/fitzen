@@ -32,6 +32,7 @@ from database.models.water_goal import WaterGoal  # noqa
 from database.models.water_log import WaterLog  # noqa
 from food_or_workout_log_service.models import FoodLog, DailyNutrition  # noqa
 from workout_plan_service.models import WorkoutPlan, WorkoutPlanExercise  # noqa
+from workout_plan_service.completion_models import WorkoutDayCompletion  # noqa
 from gym_service.models import GymAccessCode  # noqa
 
 app = FastAPI(

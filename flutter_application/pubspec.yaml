@@ -55,7 +55,7 @@ dependencies:
   percent_indicator: ^4.2.3
 
   # Audio recording
-  record: ^5.1.0
+  record: ^6.2.0
 
   # Permissions
   permission_handler: ^11.3.0
